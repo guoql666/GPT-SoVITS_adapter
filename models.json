@@ -1,0 +1,7 @@
+{
+    "shinnku_happy": {
+        "gpt": "D:/GPT-SoVITS/GPT_weights_v2ProPlus/shinnku-e15.ckpt",
+        "sovits": "D:/GPT-SoVITS/SoVITS_weights_v2ProPlus/shinnku_e8_s6016.pth",
+        "prompt_lang": "ja"
+    }
+}

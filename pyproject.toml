@@ -1,0 +1,16 @@
+[project]
+name = "gpt-sovits-adapter"
+version = "0.1.0"
+description = "FastAPI adapter for GPT-SoVITS with plugin system"
+authors = [{ name = "Your Name" }]
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Proprietary" }
+
+# Runtime deps kept minimal; dev deps in tool sections or extras
+dependencies = [
+  "fastapi>=0.103",
+  "uvicorn[standard]>=0.23",
+  "httpx>=0.24",
+  "pydantic>=2.4",
+]
