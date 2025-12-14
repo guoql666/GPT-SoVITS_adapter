@@ -19,6 +19,7 @@
 
 ## 快速开始
 视频教程：[占位符]
+
 本项目需要Python3.8及以上环境运行（你都能跑GPT-SoVITS了，用他给的python环境即可）
 
 首先配置config.py的内容，填入你自己的GPT-SoVITS后端地址。
@@ -38,18 +39,15 @@ GPT-SoVITS允许不添加参考文本，但是效果会差很多，建议这里�
 
 参考样例：
 
-'''json
+```json
 {
-    # 这里填的是你的参考音频文件名
     "anno": {
-        # 填入你的gpt和sovits路径，需要填入绝对路径。
         "gpt": "D:/GPT-SoVITS/GPT_weights_v2ProPlus/anno-e15.ckpt",
         "sovits": "D:/GPT-SoVITS/SoVITS_weights_v2ProPlus/anno_e8_s6016.pth",
-        #可以不填，默认为中文，这里的默认可以在config中修改
         "prompt_lang": "ja"
     }
 }
-'''
+```
 
 你要真不会填建议问ai，把你的东西给他，让ai帮你写了再回来，json比较坑的就是容易忘逗号了。到时候考虑改成toml。
 
@@ -91,15 +89,11 @@ http://127.0.0.1:9881
 
 
 ## TODO LIST
-[] 添加更多hook节点
-
-[] 兼容GPT-SoVITSv3 和v4
-
-[] 添加更多插件
-s
-[] 彻底优化sillytavern官方API
-
-[] 配置改为toml亲民化
+- [ ] 添加更多 hook 节点
+- [ ] 兼容 GPT-SoVITS v3 和 v4
+- [ ] 添加更多插件
+- [ ] 彻底优化 SillyTavern 官方 API
+- [ ] 配置改为 TOML 亲民化
 
 
 
