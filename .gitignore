@@ -24,4 +24,7 @@ Thumbs.db
 # personal files
 voice/*
 models_local.json
+plugins/clean_text/card_config/*
 
+# whitelist
+!plugins/clean_text/card_config/default.yaml

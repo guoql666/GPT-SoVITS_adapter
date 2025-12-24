@@ -4,17 +4,19 @@ import logging
 
 # 允许 config 缺省；若未定义则回退到环境变量或空串
 try:
-    from config import SILICONFLOW_API_KEY, SILICONFLOW_API_URL, SILICONFLOW_MODEL
+    from config import SILICONFLOW_API_KEY, SILICONFLOW_API_URL, SILICONFLOW_TRANSLATE_MODEL
 except ImportError:
     SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY", "")
     SILICONFLOW_API_URL = os.getenv("SILICONFLOW_API_URL", "")
-    SILICONFLOW_MODEL = os.getenv("SILICONFLOW_MODEL", "Qwen/Qwen2.5-14B-Instruct")
+    SILICONFLOW_TRANSLATE_MODEL = os.getenv("SILICONFLOW_TRANSLATE_MODEL", "Qwen/Qwen2.5-14B-Instruct")
+from config import DEBUG_MODE, EXTRA_TRANSLATE_PROMPT
 
 # 优先使用环境变量中的 API Key，用于本地测试环境
 SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY", SILICONFLOW_API_KEY)
 # 配置日志
 logger = logging.getLogger("Translator")
-
+if DEBUG_MODE:
+    logger.setLevel(logging.DEBUG)
 # 语言代码映射表：将 GPT-SoVITS 的简写映射为自然语言，方便 LLM 理解
 LANG_MAP = {
     "zh": "Chinese (Simplified)",
@@ -48,12 +50,39 @@ async def translate_text_handle(text: str, target_lang_code: str, api_key: str, 
         return text
 
     target_lang_name = LANG_MAP[target_lang_code]
-    
+    # 实验性功能
+    if EXTRA_TRANSLATE_PROMPT:
+        extra_prompt = """
+            ### DATA PRE-PROCESSING RULES
+            The input text is a RAW LOG containing mixed content (Dialogue, Character Names, System Tags) enclosed in quotation marks.
+            Before executing the main task, you must **EXTRACT** only the valid dialogue based on these filters:
+
+            [VALID / KEEP]
+            - Spoken sentences by characters (e.g., "Hello!", "Why are you here?").
+            - Emotional exclamations or reactions (e.g., "Huh?", "Ah!").
+
+            [INVALID / DISCARD]
+            - Character names appearing as labels (e.g., "Tohka", "Kotori").
+            - Status effects, System logs, or UI terms (e.g., "Loading", "Data", "Happy Daily").
+            - Internal thoughts or abstract nouns without sentence structure.
+
+            **INSTRUCTION:** Apply the user's requested task ONLY to the [VALID] extracted dialogue parts.
+            when you finish this work, you must make sure your output also profit the main task: translate your pre-processed text.
+            for example,suppose the input language is Chinese and the target language is Japanese,
+            Input: “幸福日常”. “士道！士道！看这边嘛！”. “嗯”. “数据”. “麻烦”. “啊——张嘴，这个是特意为你留的最好吃的一块哦！”
+            Output: "士道！士道！こっちを見て！" "あー、口を開けて、これは特別にあなたのために取っておいた一番おいしい一切れだよ！"
+
+            """
+    else:
+        extra_prompt = ""
+
     # 构建 Prompt
     system_prompt = (
-        "You are a professional translator. "
-        f"Translate the user's input text into {target_lang_name}. "
-        "Output ONLY the translated text. Do not output any explanation, notes, or punctuation marks that were not in the original tone."
+        f"{extra_prompt}\n"
+        "### MAIN TASK\n"
+        f"You are a professional translator. Translate the valid input text into [{target_lang_name}].\n"
+        "Output ONLY the final translated text. Do not output original text, notes, or explanations."
+        "before you output, make sure you have translated all the valid parts. **remeber that** the final output not contain original text."
     )
 
     payload = {
@@ -93,13 +122,13 @@ async def translate_text_handle(text: str, target_lang_code: str, api_key: str, 
 async def translate_text(request_data: dict, **kwargs) -> dict:
     target_lang = kwargs.get("target_lang", "zh")
     original_text = request_data["text"]
-    
-    if original_text and SILICONFLOW_API_KEY != "":
+    logger.debug(f"翻译文本： {original_text}")
+    if original_text and SILICONFLOW_TRANSLATE_MODEL != "":
         translated_text = await translate_text_handle(
             text=original_text,
             target_lang_code=target_lang, # 翻译成参考音频的语言
             api_key=SILICONFLOW_API_KEY,
-            model=SILICONFLOW_MODEL
+            model=SILICONFLOW_TRANSLATE_MODEL
         )
         request_data["text"] = translated_text
         request_data["text_lang"] = target_lang # 翻译后，输入文本语言就等于目标语言

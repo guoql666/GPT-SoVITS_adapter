@@ -51,8 +51,18 @@ MODELS_CONFIG_PATH_INFO = MODELS_CONFIG_PATH if not os.path.exists("models_local
 if os.path.exists(MODELS_CONFIG_PATH_INFO):
     try:
         with open(MODELS_CONFIG_PATH_INFO, "r", encoding="utf-8") as f:
-            CHARACTER_MODEL_MAP = json.load(f)
-        logger.info(f"已加载配置: 成功读取{len(CHARACTER_MODEL_MAP)} 个角色配置")
+            CHARACTER_MODEL_MAP = json.load(f)      
+        # 获取REF_AUDIO_DIR中的所有音频文件名称（不含扩展名）
+        available_characters = set()
+        if os.path.exists(REF_AUDIO_DIR):
+            for filename in os.listdir(REF_AUDIO_DIR):
+                if filename.lower().endswith(('.wav', '.mp3', '.ogg', '.flac')):
+                    char_name = os.path.splitext(filename)[0]
+                    available_characters.add(char_name)
+        
+        # 配置中有且音频文件中也有的角色数
+        loaded_count = len(available_characters & set(CHARACTER_MODEL_MAP.keys()))
+        logger.info(f"已加载配置: 成功读取{loaded_count} 个角色配置")
     except Exception as e:
         logger.error(f"加载 models.json 失败: {e}")
 
@@ -64,7 +74,7 @@ CURRENT_LOADED_MODELS = {"gpt": None, "sovits": None}
 class TTS_Request(BaseModel):
     text: str
     text_lang: str
-    ref_audio_path: str
+    ref_audio_path: str = ""
     aux_ref_audio_paths: list = []
     prompt_lang: str = ""
     prompt_text: str = ""
@@ -84,6 +94,10 @@ class TTS_Request(BaseModel):
     repetition_penalty: float = 1.35
     sample_steps: int = 32
     super_sampling: bool = False
+    use_st_adapter: bool = False
+    card_name: list = []
+    target_voice: str = ""
+
 
     @field_validator('streaming_mode', mode="before")
     def parse_streaming_mode(cls, v):
@@ -183,6 +197,50 @@ def get_real_audio_extension(file_path: str) -> str:
     # 如果无法识别，返回空字符串
     return ''
 
+# 处理与V2几乎一致，但是允许插件读取角色卡信息，适配化优化。
+async def adapter_request_handle(request_data: dict):
+    # 检查数据完整性
+    filename = request_data.get("target_voice", "")
+    character_name = os.path.splitext(filename)[0]
+    abs_file_path = os.path.join(REF_AUDIO_DIR, filename)
+    request_data["ref_audio_path"] = abs_file_path
+    target_lang = GLOBAL_DEFAULT_LANG
+    if character_name in CHARACTER_MODEL_MAP:
+        config_lang = CHARACTER_MODEL_MAP[character_name].get("prompt_lang")
+        if config_lang:
+            target_lang = config_lang
+    request_data["prompt_lang"] = target_lang
+    # 读取参考文本
+    txt_path = os.path.splitext(abs_file_path)[0] + ".txt"
+    prompt_text = ""
+    if os.path.exists(txt_path):
+        try:
+            with open(txt_path, "r", encoding="utf-8") as f:
+                prompt_text = f.read().strip()
+                logger.info(f"成功使用[{target_lang}]读取角色 {character_name} 参考文本:\"{prompt_text[:10]}...\"")
+        except: 
+            logger.warning(f"读取角色 {character_name} 参考文本失败，本次推理将以不使用参考文本的形式进行")
+    else:
+        prompt_text = character_name
+
+    request_data["prompt_text"] = prompt_text
+    # 读取参考音频后缀
+    true_extension_name = get_real_audio_extension(abs_file_path)
+    if true_extension_name != "":
+        request_data["media_type"] = true_extension_name
+    else:
+        logger.warning(f"无法识别参考音频 {abs_file_path} 的真实格式，使用默认 media_type: {request_data.get('media_type', 'wav')}")
+    # 清理文本中的垃圾内容，将其单独抽象出来形成插件
+    request_data = await plugin_manager.run_hook(
+        "on_clean_text_card", 
+        data=request_data,
+        character_name=character_name,
+        target_lang=target_lang
+    )
+    logger.debug(character_name)
+    return request_data, character_name, target_lang
+
+
 # 依旧是ST和卡面兼容性问题，处理路径问题和加载角色prompt
 # (感觉ST的GPT-SoVITSv2好久没人维护了，传过来的路径特别奇怪，等有空了看看能不能改改交个pr(又挖坑...))
 async def fix_request_path_and_load_prompt(request_data: dict):
@@ -214,7 +272,6 @@ async def fix_request_path_and_load_prompt(request_data: dict):
             logger.warning(f"读取角色 {character_name} 参考文本失败，本次推理将以不使用参考文本的形式进行")
     else:
         prompt_text = character_name
-
     request_data["prompt_text"] = prompt_text
     # 读取参考音频后缀
     true_extension_name = get_real_audio_extension(abs_file_path)
@@ -223,9 +280,9 @@ async def fix_request_path_and_load_prompt(request_data: dict):
     else:
         logger.warning(f"无法识别参考音频 {abs_file_path} 的真实格式，使用默认 media_type: {request_data.get('media_type', 'wav')}")
     # 清理文本中的垃圾内容，将其单独抽象出来形成插件
-    request_data["text"] = await plugin_manager.run_hook(
+    request_data = await plugin_manager.run_hook(
         "on_clean_text", 
-        data=request_data.get("text", ""),
+        data=request_data,
         character_name=character_name,
         target_lang=target_lang
     )
@@ -237,9 +294,13 @@ async def fix_request_path_and_load_prompt(request_data: dict):
 @app.post("/tts")
 async def tts_stream_endpoint(request: TTS_Request):
     request_data = request.model_dump()
-    request_data, character_name, target_lang = await fix_request_path_and_load_prompt(request_data)
+    use_st_adapter = request_data.get("use_st_adapter", False)
+    logger.debug(f"收到请求数据: {request_data}")
+    if not use_st_adapter:
+        request_data, character_name, target_lang = await fix_request_path_and_load_prompt(request_data)
+    else:
+        request_data, character_name, target_lang = await adapter_request_handle(request_data)
     logger.debug(f"处理后的请求数据: {request_data}")
-
     # 根据请求切换模型
     await switch_model(character_name)
 
@@ -296,7 +357,11 @@ def speakers_list_endpoint():
 @app.post("/srt")
 async def tts_file_endpoint(request: TTS_Request, req_obj: Request):
     request_data = request.model_dump()
-    request_data, character_name, target_lang = fix_request_path_and_load_prompt(request_data)
+    use_st_adapter = request_data.get("use_st_adapter", False)
+    if not use_st_adapter:
+        request_data, character_name, target_lang = await fix_request_path_and_load_prompt(request_data)
+    else:
+        request_data, character_name, target_lang = await adapter_request_handle(request_data)
     
     request_data["streaming_mode"] = False
     await switch_model(character_name)
@@ -330,7 +395,8 @@ async def tts_file_endpoint(request: TTS_Request, req_obj: Request):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--port", type=int, default=9881)
+    parser.add_argument("-H", "--host", type=str, default="0.0.0.0")
     args = parser.parse_args()
     
     print(f"\n服务已启动, 监听端口: {args.port}") 
-    uvicorn.run(app, host="0.0.0.0", port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port)

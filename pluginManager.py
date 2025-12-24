@@ -2,8 +2,9 @@ import inspect
 import importlib
 import pkgutil
 import logging
+import traceback
 from typing import Callable, Any, List, Dict, Tuple
-
+from config import DEBUG_MODE
 
 class AsyncPluginManager:
     # 优先级常量
@@ -46,6 +47,8 @@ class AsyncPluginManager:
                     current_data = func(current_data, **kwargs)
             except Exception as e:
                 logging.error(f"插件 {name} 执行出错: {e}")
+                if DEBUG_MODE:
+                    logging.error(f"详细错误堆栈:\n{traceback.format_exc()}")
         
         return current_data
 

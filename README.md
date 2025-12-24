@@ -18,7 +18,7 @@
 
 
 ## 快速开始
-视频教程：[占位符]
+视频教程：[Bilibili](https://www.bilibili.com/video/BV1G1m1BKEEM)
 
 本项目需要Python3.8及以上环境运行（你都能跑GPT-SoVITS了，用他给的python环境即可）
 
@@ -62,6 +62,7 @@ GPT-SoVITS允许不添加参考文本，但是效果会差很多，建议这里�
 找到TTS，点击进去
 
 服务提供商选择GPT-SoVITS-V2(Unofficial)
+~~新的服务提供商已提交给SIllyTavern官方，等更新吧...~~
 
 勾选已启用
 
